@@ -1,203 +1,158 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { Wallet as WalletIcon, ArrowUpRight, History, CreditCard, Copy, Smartphone } from 'lucide-react';
-import momoQr from '../assets/momo-qr.jpeg';
+import { X, CreditCard, Wallet, Lock, Copy, Check } from 'lucide-react';
+import { api } from '../api/client';
 
-interface UserInfo {
-  encrypted_yw_id: string;
+// ĐÃ SỬA: Không import ảnh từ file nội bộ nữa để tránh lỗi build
+// import momoQr from '../assets/momo-qr.jpeg'; 
+
+// Dùng link ảnh placeholder hoặc link ảnh QR của bạn
+const MOMO_QR_URL = "https://tiemtruyennho.blogspot.com/p/vietcombank-1027269399-luu-y-nho-nap-xu.html"; 
+
+interface PaymentModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  type: 'deposit' | 'withdraw' | 'unlock';
+  amount?: number; // For unlock
+  onSuccess?: () => void;
 }
 
-const Wallet: React.FC = () => {
-  const { userInfo } = useOutletContext<{ userInfo: UserInfo | null }>();
-  const [balance, setBalance] = useState(0);
-  const [amount, setAmount] = useState('');
-  const [transactionCode, setTransactionCode] = useState('');
+const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, type, amount, onSuccess }) => {
+  const [inputAmount, setInputAmount] = useState(amount || 10000);
+  const [walletNumber, setWalletNumber] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'bank' | 'momo'>('momo');
-
-  const fetchBalance = async () => {
-    try {
-      const response = await fetch('https://backend.youware.com/api/wallet', {
-        headers: {
-          'X-Encrypted-Yw-ID': userInfo?.encrypted_yw_id || '',
-          'X-Is-Login': userInfo ? '1' : '0',
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBalance(data.balance);
-      }
-    } catch (error) {
-      console.error('Failed to fetch balance', error);
-    }
-  };
+  const [user, setUser] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (userInfo) {
-      fetchBalance();
+    if (isOpen) {
+      api.getUserInfo().then(data => {
+        if (data && data.encrypted_yw_id) {
+           setUser(data);
+        }
+      });
     }
-  }, [userInfo]);
+  }, [isOpen]);
 
-  const handleTopupRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userInfo) return;
+  if (!isOpen) return null;
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSubmit = async () => {
     setLoading(true);
     try {
-      const response = await fetch('https://backend.youware.com/api/wallet/topup-request', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Encrypted-Yw-ID': userInfo.encrypted_yw_id,
-          'X-Is-Login': '1',
-        },
-        body: JSON.stringify({ 
-          amount: parseInt(amount), 
-          transactionCode,
-          method: activeTab 
-        }),
-      });
-      
-      if (response.ok) {
-        alert('Gửi yêu cầu nạp tiền thành công! Vui lòng chờ Admin duyệt.');
-        setAmount('');
-        setTransactionCode('');
+      if (type === 'deposit') {
+        const res = await api.post('/api/payment/deposit', { amount: inputAmount });
+        if (res && res.success) {
+          alert('Đã gửi yêu cầu nạp tiền! Vui lòng chờ Admin duyệt (thường trong 5-10 phút).');
+          onClose();
+        }
+      } else if (type === 'withdraw') {
+        const res = await api.post('/api/payment/withdraw', { amount: inputAmount, wallet_number: walletNumber });
+        if (res && res.success) {
+          alert('Yêu cầu rút tiền đã được gửi!');
+          onClose();
+        } else {
+          alert(res.error || 'Lỗi');
+        }
+      } else if (type === 'unlock') {
+        // Unlock logic handled in parent usually, but can be here
       }
-    } catch (error) {
-      alert('Lỗi gửi yêu cầu');
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!userInfo) {
-    return <div className="p-8 text-center">Vui lòng đăng nhập để sử dụng Ví.</div>;
-  }
+  const transferContent = `NAP ${user?.encrypted_yw_id?.substring(0, 8) || 'USER'}`;
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <div className="bg-gradient-to-r from-pink-600 to-purple-600 rounded-2xl p-6 text-white shadow-xl mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <WalletIcon className="w-6 h-6" />
-            <span className="font-medium opacity-90">Số dư hiện tại</span>
-          </div>
-          <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-medium">Xu</span>
-        </div>
-        <div className="text-4xl font-bold mb-6">
-          {balance.toLocaleString()} <span className="text-2xl opacity-80">xu</span>
-        </div>
-      </div>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md p-6 relative max-h-[90vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X size={24} />
+        </button>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-8">
-        <div className="flex border-b border-gray-100">
-          <button 
-            onClick={() => setActiveTab('momo')}
-            className={`flex-1 py-4 font-bold flex items-center justify-center gap-2 ${activeTab === 'momo' ? 'bg-pink-50 text-pink-600 border-b-2 border-pink-600' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            <Smartphone className="w-5 h-5" /> Ví MoMo
-          </button>
-          <button 
-            onClick={() => setActiveTab('bank')}
-            className={`flex-1 py-4 font-bold flex items-center justify-center gap-2 ${activeTab === 'bank' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            <CreditCard className="w-5 h-5" /> Ngân hàng
-          </button>
-        </div>
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+          {type === 'deposit' && <><CreditCard className="text-green-600" /> Nạp Xu (MOMO)</>}
+          {type === 'withdraw' && <><Wallet className="text-orange-600" /> Rút Tiền</>}
+          {type === 'unlock' && <><Lock className="text-indigo-600" /> Mở Khóa Chương</>}
+        </h2>
 
-        <div className="p-6 grid md:grid-cols-2 gap-8">
-          {/* Payment Info */}
-          <div>
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Thông tin chuyển khoản</h3>
-            
-            {activeTab === 'momo' ? (
-              <div className="text-center">
-                <div className="bg-pink-50 p-4 rounded-xl inline-block mb-4">
-                  <img src={momoQr} alt="MoMo QR" className="w-48 h-auto rounded-lg" />
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="font-bold text-gray-900">ĐẶNG THỊ THƯƠNG</div>
-                  <div className="text-gray-500">Quét mã để thanh toán</div>
-                  <div className="p-2 bg-gray-100 rounded text-xs text-gray-600">
-                    Nội dung: <strong>NAP {userInfo.encrypted_yw_id.substring(0, 6)}</strong>
+        <div className="space-y-4">
+          {type === 'deposit' && (
+            <>
+              <div className="flex justify-center mb-4">
+                <div className="relative group">
+                  {/* Sử dụng URL ảnh thay vì biến import */}
+                  <img src={MOMO_QR_URL} alt="MOMO QR" className="w-48 h-48 object-contain border-2 border-pink-500 rounded-xl" />
+                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-pink-600 text-white text-xs px-2 py-0.5 rounded-full">
+                    Quét mã để nạp
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4 text-sm">
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-gray-500 mb-1">Ngân hàng</div>
-                  <div className="font-bold text-gray-900">MB Bank (Quân Đội)</div>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-gray-500 mb-1">Số tài khoản</div>
-                  <div className="font-bold text-gray-900 flex justify-between items-center">
-                    0123456789999
-                    <button className="text-purple-600 hover:text-purple-700"><Copy className="w-4 h-4" /></button>
-                  </div>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-gray-500 mb-1">Chủ tài khoản</div>
-                  <div className="font-bold text-gray-900">YOUWARE COMPANY</div>
-                </div>
-                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-xs">
-                  Nội dung CK: <strong>NAP {userInfo.encrypted_yw_id.substring(0, 6)}</strong>
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Confirm Form */}
-          <div>
-            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <ArrowUpRight className="w-5 h-5 text-green-600" /> Xác nhận nạp
-            </h3>
-            <form onSubmit={handleTopupRequest} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Số tiền đã chuyển</label>
+                <p className="text-sm text-gray-600 mb-1">Nhập số tiền muốn nạp (1 Xu = 1 VND):</p>
                 <input 
                   type="number" 
-                  required
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="Ví dụ: 50000"
+                  value={inputAmount}
+                  onChange={(e) => setInputAmount(Number(e.target.value))}
+                  className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-lg"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mã giao dịch</label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
-                  value={transactionCode}
-                  onChange={e => setTransactionCode(e.target.value)}
-                  placeholder="Nhập mã giao dịch từ App"
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={loading}
-                className={`w-full py-3 text-white font-bold rounded-lg transition-colors disabled:bg-gray-300 ${
-                  activeTab === 'momo' ? 'bg-pink-600 hover:bg-pink-700' : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                {loading ? 'Đang gửi...' : 'Gửi yêu cầu nạp tiền'}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
 
-      <div className="mt-8">
-        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <History className="w-5 h-5 text-gray-500" /> Lịch sử giao dịch
-        </h3>
-        <div className="bg-white rounded-xl border border-gray-100 p-4 text-center text-gray-500 text-sm">
-          Chưa có giao dịch nào gần đây.
+              <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600 border border-gray-200">
+                <p className="font-bold mb-2 text-gray-800">Thông tin chuyển khoản bắt buộc:</p>
+                <div className="flex items-center justify-between bg-white p-2 rounded border border-gray-200 mb-2">
+                  <span className="text-gray-500">Nội dung:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-indigo-600">{transferContent}</span>
+                    <button onClick={() => handleCopy(transferContent)} className="text-gray-400 hover:text-indigo-600">
+                      {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-red-500">* Vui lòng nhập đúng nội dung để được cộng Xu nhanh nhất.</p>
+              </div>
+            </>
+          )}
+
+          {type === 'withdraw' && (
+            <>
+              <p className="text-sm text-gray-600">Số tiền rút:</p>
+              <input 
+                type="number" 
+                value={inputAmount}
+                onChange={(e) => setInputAmount(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+              <p className="text-sm text-gray-600">Số ví MOMO nhận tiền:</p>
+              <input 
+                type="text" 
+                value={walletNumber}
+                onChange={(e) => setWalletNumber(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 outline-none"
+                placeholder="09xx..."
+              />
+            </>
+          )}
+
+          <button 
+            onClick={handleSubmit}
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-lg shadow-indigo-200"
+          >
+            {loading ? 'Đang xử lý...' : (type === 'deposit' ? 'Tôi Đã Chuyển Tiền' : 'Xác Nhận')}
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-export default Wallet;
+export default PaymentModal;
